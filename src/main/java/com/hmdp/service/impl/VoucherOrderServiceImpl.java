@@ -8,9 +8,11 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
@@ -31,6 +33,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Autowired
     private RedisIdWorker redisIdWorker;
 
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * 无限制抢购 一人可以N单 但不会存在超卖现象
@@ -102,11 +107,18 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("抢购失败，库存不足");
         }
         Long userid = UserHolder.getUser().getId();
-
-        synchronized (userid.toString().intern()) {
-            IVoucherOrderService iVoucherOrderService = (IVoucherOrderService) AopContext.currentProxy();
-            return iVoucherOrderService.createVoucherOrder(voucherId,userid);
+        SimpleRedisLock simpleRedisLock = new SimpleRedisLock("lock:" + userid, stringRedisTemplate);
+        boolean b = simpleRedisLock.tryLock(100);
+        if (!b){
+            return Result.fail("一人只限售一单");
         }
+        try {
+            IVoucherOrderService iVoucherOrderService = (IVoucherOrderService) AopContext.currentProxy();
+            return iVoucherOrderService.createVoucherOrder(voucherId, userid);
+        }finally {
+            simpleRedisLock.unlock();
+        }
+
     }
 
 
