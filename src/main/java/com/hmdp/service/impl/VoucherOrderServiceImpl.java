@@ -10,6 +10,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -83,6 +85,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     }*/
 
 
+    @Autowired
+    private RedissonClient redissonClient;
     /**
      * 实现一人一单
      * @param voucherId
@@ -107,8 +111,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("抢购失败，库存不足");
         }
         Long userid = UserHolder.getUser().getId();
-        SimpleRedisLock simpleRedisLock = new SimpleRedisLock("lock:" + userid, stringRedisTemplate);
-        boolean b = simpleRedisLock.tryLock(100);
+        //SimpleRedisLock simpleRedisLock = new SimpleRedisLock("lock:" + userid, stringRedisTemplate);
+        RLock lock = redissonClient.getLock("lock:order:" + userid);
+        boolean b = lock.tryLock();
         if (!b){
             return Result.fail("一人只限售一单");
         }
@@ -116,7 +121,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             IVoucherOrderService iVoucherOrderService = (IVoucherOrderService) AopContext.currentProxy();
             return iVoucherOrderService.createVoucherOrder(voucherId, userid);
         }finally {
-            simpleRedisLock.unlock();
+            lock.unlock();
         }
 
     }
